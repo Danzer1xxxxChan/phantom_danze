@@ -59,9 +59,10 @@ class DetectorHamer:
         self.model, self.model_cfg = self.load_hamer_model(checkpoint_path, root_dir)
         self.model.to(self.device)
         self.model.eval()
-
-        root_dir = "../submodules/phantom-hamer/"
+        #danze:modify
+        root_dir = "/users/weijia/danze/phantom/submodules/phantom-hamer"
         vit_dir = os.path.join(root_dir, "third-party/ViTPose/")
+        #end modify
         self.cpm = ViTPoseModel(device=self.device, root_dir=root_dir, vit_dir=vit_dir)
 
         self.faces_right = self.model.mano.faces
@@ -153,8 +154,12 @@ class DetectorHamer:
 
             T_cam_pred_all += batch_T_cam_pred_all
 
+        # black_bg = np.zeros_like(img)
+        # black_img = cv2.cvtColor(black_bg, cv2.COLOR_RGB2BGR)
+
         annotated_img = DetectorHamer.visualize_2d_kpt_on_img(
             kpts_2d=list_2d_kpts[0],
+            # img=black_img,
             img=img,
         )
 
