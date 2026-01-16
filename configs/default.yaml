@@ -12,19 +12,23 @@ mode: ["bbox"]  # Default processing mode - must be one of: bbox, hand2d, hand3d
 demo_num: null  # Process specific demo number (null = process all)
 
 # Additional settings
-debug_cameras: []
+debug_cameras: ['birdview','frontview','agentview','sideview']  # Cameras to visualize in debug mode
 
 # PHANTOM paper configuration (default)
-input_resolution: 1080
-output_resolution: 240
+input_resolution: 360
+output_resolution: 360
 robot: "Panda"
-gripper: "Robotiq85"
-square: true
+# gripper: "Robotiq85"
+gripper: "Panda"
+square: false
 epic: false
 bimanual_setup: "single_arm"
-target_hand: "left"
+# target_hand: "left"
+target_hand: "right"
 constrained_hand: true
 depth_for_overlay: true
 render: false
-camera_intrinsics: "camera/camera_intrinsics_HD1080.json"
-camera_extrinsics: "camera/camera_extrinsics.json"
+# camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_HD1080.json"
+# camera_extrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_extrinsics.json"
+camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_our_lab_single.json"
+camera_extrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_extrinsics_our_lab_single_moved.json"
