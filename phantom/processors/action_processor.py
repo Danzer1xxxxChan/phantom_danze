@@ -136,8 +136,13 @@ class ActionProcessor(BaseProcessor):
         # Combine detection results using OR logic - frame is valid if either hand detected
         union_indices = np.where(left_sequence.hand_detected | right_sequence.hand_detected)[0]
 
+        union_indices_dot = [int(idx+1) for idx in union_indices]
+        print(f"union_indices= {union_indices_dot}")
+
+
         # Refine actions for both hands using the union indices
         left_actions_refined = self._refine_actions(left_sequence, left_actions, union_indices, "left")
+        # import pdb; pdb.set_trace()
         right_actions_refined = self._refine_actions(right_sequence, right_actions, union_indices, "right")
 
         # Save results for both hands
@@ -183,7 +188,9 @@ class ActionProcessor(BaseProcessor):
             EEActions: Processed end-effector positions, orientations, and gripper widths
         """
         # Convert keypoints from camera frame to robot frame coordinates
+        
         kpts_3d_cf = sequence.kpts_3d  # Camera frame keypoints
+        # import pdb; pdb.set_trace()
         kpts_3d_rf = ActionProcessor._convert_pts_to_robot_frame(
             kpts_3d_cf, 
             T_cam2robot
@@ -346,6 +353,8 @@ class ActionProcessor(BaseProcessor):
             ee_pts_refined.append(last_valid_pt)
             ee_oris_refined.append(last_valid_ori)
             ee_widths_refined.append(last_valid_width)
+        
+        # import pdb; pdb.set_trace()
         
         return EEActions(
             ee_pts=np.array(ee_pts_refined),
