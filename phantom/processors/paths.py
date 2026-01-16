@@ -81,6 +81,7 @@ class Paths:
         self.video_human_inpaint = self.inpaint_processor / "video_human_inpaint.mkv"
         self.video_inpaint_overlay = self.inpaint_processor / "video_inpaint_overlay.mkv"
         self.video_birdview = self.inpaint_processor / "video_birdview.mkv"
+        self.video_sideview = self.inpaint_processor / "video_sideview.mkv"
         self.training_data = self.inpaint_processor / "training_data.npz"
 
     def _setup_original_images(self):
