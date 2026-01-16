@@ -54,6 +54,13 @@ from phantom.processors.phantom_data import hand_side_dict
 
 from phantom.utils.bbox_utils import get_bbox_center, get_bbox_center_min_dist_to_edge
 
+#danze:add
+from hamer.utils.utils_detectron2 import DefaultPredictor_Lazy
+from detectron2.config import LazyConfig
+import hamer
+from phantom.detectors.detector_hamer import DetectorHamer  
+#add end
+
 logger = logging.getLogger(__name__)
 
 # Type aliases for better readability
@@ -115,12 +122,15 @@ class BBoxProcessor(BaseProcessor):
         self.W: int = 0
 
         # Initialize detection backend based on dataset type
+        #danze
         if not self.epic:
             from phantom.detectors.detector_dino import DetectorDino
             self.dino_detector: DetectorDino = DetectorDino("IDEA-Research/grounding-dino-base")
         else:
             self.dino_detector: Optional[DetectorDino] = None
-            
+        
+        # from phantom.detectors.detector_dino import DetectorDino
+        # self.dino_detector: DetectorDino = DetectorDino("IDEA-Research/grounding-dino-base")
         # EPIC-specific attributes
         self.filtered_hand_detection_data: Dict[str, List[Any]] = {}
         self.sorted_keys: List[str] = []
@@ -157,11 +167,21 @@ class BBoxProcessor(BaseProcessor):
         imgs_rgb = self._load_video(paths)
 
         # Process frames based on dataset type
+
+        #danze:annotations
+        # if self.epic:
+        #     self._load_epic_hand_data(paths)
+        #     detection_results = self._process_epic_frames(imgs_rgb)
+        # else:
+        #     detection_results = self._process_frames(imgs_rgb)
+        #annotations end
+
+        #danze:add
         if self.epic:
-            self._load_epic_hand_data(paths)
-            detection_results = self._process_epic_frames(imgs_rgb)
+            detection_results = self._process_frames_with_keypoints(imgs_rgb)
         else:
             detection_results = self._process_frames(imgs_rgb)
+        #add end
 
         # Post-process results for temporal consistency
         processed_results = self._post_process_detections(detection_results)
@@ -233,11 +253,13 @@ class BBoxProcessor(BaseProcessor):
                 bboxes = np.array(bboxes)
                 scores = np.array(scores)
                 
+                # import pdb; pdb.set_trace()
                 # Process detections for current frame
                 self._process_frame_detections(idx, bboxes, scores, detection_arrays)
             except Exception as e:
                 logger.warning(f"Frame {idx} processing failed: {str(e)}")
                 continue
+        # import pdb; pdb.set_trace()
 
         return {
             'left_hand_detected': detection_arrays['left_hand_detected'],
@@ -301,6 +323,124 @@ class BBoxProcessor(BaseProcessor):
     # ============================================================================
     # EPIC-SPECIFIC METHODS (EPIC Dataset Processing)
     # ============================================================================
+
+    #danze:add
+    def _process_frames_with_keypoints(self, imgs_rgb: np.ndarray) -> DetectionResults:
+        """使用关键点检测方法处理帧"""
+        num_frames = len(imgs_rgb)
+        detection_arrays = self._initialize_detection_arrays(num_frames)
+        
+        # 初始化检测器（只在第一次调用时初始化）
+        if not hasattr(self, 'detector'):
+            self._initialize_keypoint_detectors()
+        
+        for idx in range(num_frames):
+            try:
+                # 处理当前帧
+                self._process_frame_with_keypoints(idx, imgs_rgb[idx], detection_arrays)
+            except Exception as e:
+                logger.warning(f"Frame {idx} processing failed: {str(e)}")
+                continue
+
+        return {
+            'left_hand_detected': detection_arrays['left_hand_detected'],
+            'right_hand_detected': detection_arrays['right_hand_detected'],
+            'left_bboxes': detection_arrays['left_bboxes'],
+            'right_bboxes': detection_arrays['right_bboxes'],
+            'left_bboxes_ctr': detection_arrays['left_bboxes_ctr'],
+            'right_bboxes_ctr': detection_arrays['right_bboxes_ctr'],
+        }
+
+    def _initialize_keypoint_detectors(self):
+        """初始化关键点检测器"""
+        
+        # 初始化人体检测器
+        cfg_path = "/users/weijia/danze/phantom/submodules/phantom-hamer/hamer/configs/cascade_mask_rcnn_vitdet_h_75ep.py"
+        detectron2_cfg = LazyConfig.load(str(cfg_path))
+        detectron2_cfg.train.init_checkpoint = "https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl"
+        for i in range(3):
+            detectron2_cfg.model.roi_heads.box_predictors[i].test_score_thresh = 0.25
+        self.detector = DefaultPredictor_Lazy(detectron2_cfg)
+        
+        # 初始化姿态估计器
+        self.cpm = DetectorHamer().cpm
+
+    def _process_frame_with_keypoints(self, idx: int, img: np.ndarray, 
+                                    detection_arrays: Dict[str, npt.NDArray]) -> None:
+        """使用关键点检测方法处理单帧"""
+        # 运行人体检测器
+        det_out = self.detector(img)
+        det_instances = det_out['instances']
+        valid_idx = (det_instances.pred_classes == 0) & (det_instances.scores > 0.5)
+        pred_bboxes = det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
+        pred_scores = det_instances.scores[valid_idx].cpu().numpy()
+
+        if len(pred_bboxes) == 0:
+            return  # 没有检测到人体
+
+        # 运行姿态估计器
+        vitposes_out = self.cpm.predict_pose(
+            img,
+            [np.concatenate([pred_bboxes, pred_scores[:, None]], axis=1)],
+        )
+
+        bboxes, is_right = [], []
+        for vitposes in vitposes_out:
+            left_hand_keyp = vitposes['keypoints'][-42:-21]
+            right_hand_keyp = vitposes['keypoints'][-21:]
+
+            # 左手
+            valid = left_hand_keyp[:, 2] > 0.5
+            if sum(valid) > 3:
+                bbox = [
+                    left_hand_keyp[valid, 0].min(), 
+                    left_hand_keyp[valid, 1].min(),
+                    left_hand_keyp[valid, 0].max(), 
+                    left_hand_keyp[valid, 1].max()
+                ]
+                bboxes.append(bbox)
+                is_right.append(0)  # 0 表示左手
+
+            # 右手
+            valid = right_hand_keyp[:, 2] > 0.5
+            if sum(valid) > 3:
+                bbox = [
+                    right_hand_keyp[valid, 0].min(), 
+                    right_hand_keyp[valid, 1].min(),
+                    right_hand_keyp[valid, 0].max(), 
+                    right_hand_keyp[valid, 1].max()
+                ]
+                bboxes.append(bbox)
+                is_right.append(1)  # 1 表示右手
+
+        if len(bboxes) == 0:
+            return  # 没有检测到手部
+
+        bboxes = np.array(bboxes)
+        is_right = np.array(is_right)
+
+        # 存储结果
+        if 0 in is_right:  # 有左手检测
+            left_idx = np.where(is_right == 0)[0]
+            # 选择最大的左手边界框
+            left_areas = (bboxes[left_idx, 2] - bboxes[left_idx, 0]) * (bboxes[left_idx, 3] - bboxes[left_idx, 1])
+            best_left_idx = left_idx[np.argmax(left_areas)]
+            
+            detection_arrays['left_hand_detected'][idx] = True
+            detection_arrays['left_bboxes'][idx] = bboxes[best_left_idx]
+            detection_arrays['left_bboxes_ctr'][idx] = get_bbox_center(bboxes[best_left_idx])
+
+        if 1 in is_right:  # 有右手检测
+            right_idx = np.where(is_right == 1)[0]
+            # 选择最大的右手边界框
+            right_areas = (bboxes[right_idx, 2] - bboxes[right_idx, 0]) * (bboxes[right_idx, 3] - bboxes[right_idx, 1])
+            best_right_idx = right_idx[np.argmax(right_areas)]
+            
+            detection_arrays['right_hand_detected'][idx] = True
+            detection_arrays['right_bboxes'][idx] = bboxes[best_right_idx]
+            detection_arrays['right_bboxes_ctr'][idx] = get_bbox_center(bboxes[best_right_idx])
+    #add end
+
 
     def _validate_epic_data_structure(self, epic_data: List[Any]) -> bool:
         """Validate EPIC data structure before processing."""
@@ -421,6 +561,7 @@ class BBoxProcessor(BaseProcessor):
         if right_detected:
             detection_arrays['right_bboxes'][idx] = right_bbox
             detection_arrays['right_bboxes_ctr'][idx] = right_bbox_ctr
+
 
         # Quality check: If hands appear crossed (left hand on right side), 
         # mark both as invalid to avoid confusion
@@ -839,13 +980,3 @@ class BBoxProcessor(BaseProcessor):
             i = next_valid
         
         return detected, bboxes, centers
-    
-
-
-
-
-    
-
-
-    
-
