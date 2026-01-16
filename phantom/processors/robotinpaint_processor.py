@@ -25,6 +25,8 @@ from scipy.spatial.transform import Rotation
 from typing import Tuple, Dict, List, Optional, Any, Union
 import logging
 from dataclasses import dataclass
+import subprocess
+
 
 from phantom.processors.phantom_data import TrainingData, TrainingDataSequence, HandSequence
 from phantom.processors.base_processor import BaseProcessor
@@ -54,8 +56,8 @@ class RobotInpaintProcessor(BaseProcessor):
     Uses mujoco to overlay robot on human inpainted images.
     """
     # Processing constants for quality control and output formatting
-    TRACKING_ERROR_THRESHOLD = 0.05  # Maximum tracking error in meters
-    DEFAULT_FPS = 15                 # Standard frame rate for output videos
+    TRACKING_ERROR_THRESHOLD = 1000  # Maximum tracking error in meters(0.05)
+    DEFAULT_FPS = 10                 # Standard frame rate for output videos(8)
     DEFAULT_CODEC = "ffv1"          # Lossless codec for high-quality output
 
     def __init__(self, args: Any) -> None:
@@ -133,13 +135,45 @@ class RobotInpaintProcessor(BaseProcessor):
         # Load and prepare demonstration data
         data = self._load_data(paths)
         images = self._load_images(paths, data["union_indices"])
+        #danze
+        video_L_path = str(paths.data_path / "video_L.mp4")
+        cap = cv2.VideoCapture(video_L_path)
+        frame_indices = set(data["union_indices"])
+        selected_frames = []
+        frame_id = 0
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame_id in frame_indices:
+                selected_frames.append(frame[..., ::-1])  # BGR -> RGB (如果后续需要)
+            frame_id += 1
+
+        cap.release()
+
+        selected_frames = np.array(selected_frames)
+
+        align_video_path = str(paths.data_path / "align.mkv")
+        self._save_video(align_video_path, selected_frames)
+
         gripper_actions, gripper_widths = self._process_gripper_widths(paths, data)
 
         # Process all frames to generate robot overlays and training data
-        sequence, img_overlay, img_birdview = self._process_frames(images, data, gripper_actions, gripper_widths)
+        # sequence, img_overlay, img_birdview = self._process_frames(images, data, gripper_actions, gripper_widths)
+
+        #danze: add
+        sequence, img_overlay, img_birdview, img_sideview = self._process_frames(images, data, gripper_actions, gripper_widths)
+
         
         # Save comprehensive results
-        self._save_results(paths, sequence, img_overlay, img_birdview)
+        self._save_results(paths, sequence, img_overlay, selected_frames, img_birdview, img_sideview ,data["union_indices"])
+
+        traj_save_path = os.path.join(paths.data_path, f"robot_traj_{self.robot}_{self.bimanual_setup}.npz")
+        
+        if hasattr(self, 'twin_robot'):
+            print(f"Saving robot trajectory to {traj_save_path}...")
+            self.twin_robot.save_robot_eef_traj(traj_save_path)
 
     def _process_frames(self, images: Dict[str, np.ndarray], data: Dict[str, np.ndarray],
                        gripper_actions: Dict[str, np.ndarray], gripper_widths: Dict[str, np.ndarray]) -> Tuple[TrainingDataSequence, List[np.ndarray], Optional[List[np.ndarray]]]:
@@ -161,8 +195,11 @@ class RobotInpaintProcessor(BaseProcessor):
         sequence = TrainingDataSequence()
         img_overlay = []
         img_birdview = None
+        img_sideview = None
         if "birdview" in self.debug_cameras:
             img_birdview = []
+        if "sideview" in self.debug_cameras:
+            img_sideview = []
 
         for idx in tqdm(range(len(images['human_imgs'])), desc="Processing frames"):
             # Extract robot states for current frame
@@ -181,7 +218,7 @@ class RobotInpaintProcessor(BaseProcessor):
             frame_results = self._process_single_frame(
                 images, left_state, right_state, idx
             )
-            
+            # import pdb; pdb.set_trace()
             # Handle failed processing (tracking errors, simulation issues)
             if frame_results is None:
                 print(f"sdfsdfsTracking error too large at frame {idx}, skipping")
@@ -191,6 +228,8 @@ class RobotInpaintProcessor(BaseProcessor):
                 img_overlay.append(np.zeros_like(images['human_imgs'][idx]))
                 if "birdview" in self.debug_cameras:
                     img_birdview.append(np.zeros_like(images['human_imgs'][idx]))
+                if "sideview" in self.debug_cameras:
+                    img_sideview.append(np.zeros_like(images['human_imgs'][idx]))
             else:
                 # Create comprehensive training data annotation
                 sequence.add_frame(TrainingData(
@@ -208,7 +247,9 @@ class RobotInpaintProcessor(BaseProcessor):
                 img_overlay.append(frame_results['rgb_robot_overlay'])
                 if "birdview" in self.debug_cameras:
                     img_birdview.append(frame_results['birdview_img'])
-        return sequence, img_overlay, img_birdview
+                if "sideview" in self.debug_cameras:
+                    img_sideview.append(frame_results['sideview_img'])
+        return sequence, img_overlay, img_birdview, img_sideview
 
     
     def _process_single_frame(self, images: Dict[str, np.ndarray],
@@ -254,6 +295,9 @@ class RobotInpaintProcessor(BaseProcessor):
         robot_results = self.twin_robot.move_to_target_state(
             target_state, init=(idx == 0)  # Initialize on first frame
         )
+        # print(f"target_state_pos: {target_state['pos']}")
+        # print(f"robot_results_pos left_pos_err: {robot_results['left_pos_err']}, right_pos_err: {robot_results['right_pos_err']}")
+
 
         # Validate tracking accuracy to ensure quality
         if self.bimanual_setup == "single_arm":
@@ -267,15 +311,19 @@ class RobotInpaintProcessor(BaseProcessor):
                 return None
 
         # Generate robot overlay using appropriate method
-        if self.use_depth:
-            rgb_robot_overlay = self._process_robot_overlay_with_depth(
-                images['human_imgs'][idx],
-                images['human_masks'][idx],
-                images['imgs_depth'][idx],
-                robot_results
-            )
-        else:
-            rgb_robot_overlay = self._process_robot_overlay(
+        # if self.use_depth:
+        #     rgb_robot_overlay = self._process_robot_overlay_with_depth(
+        #         images['human_imgs'][idx],
+        #         images['human_masks'][idx],
+        #         images['imgs_depth'][idx],
+        #         robot_results
+        #     )
+        # else:
+        #     rgb_robot_overlay = self._process_robot_overlay(
+        #         images['human_imgs'][idx], robot_results
+        #     )
+
+        rgb_robot_overlay = self._process_robot_overlay(
                 images['human_imgs'][idx], robot_results
             )
 
@@ -619,8 +667,9 @@ class RobotInpaintProcessor(BaseProcessor):
         
         return overlay_mask
 
-    def _save_results(self, paths: Paths, sequence: TrainingDataSequence, img_overlay: List[np.ndarray], 
-                     img_birdview: Optional[List[np.ndarray]] = None) -> None:
+    def _save_results(self, paths: Paths, sequence: TrainingDataSequence, img_overlay: List[np.ndarray]
+                      , selected_frames : List[np.ndarray], img_birdview: Optional[List[np.ndarray]] = None,
+                      img_sideview: Optional[List[np.ndarray]] = None, union_indices: Optional[List[int]] = None) -> None:
         """
         Save comprehensive robot inpainting results to disk.
         
@@ -629,6 +678,8 @@ class RobotInpaintProcessor(BaseProcessor):
             sequence: Training data sequence with robot state annotations
             img_overlay: List of robot overlay images
             img_birdview: Optional list of bird's eye view images for analysis
+            img_sideview: Optional list of side view images for analysis
+            union_indices: Optional list of frame indices used for processing
         """
         # Create output directory
         os.makedirs(paths.inpaint_processor, exist_ok=True)
@@ -640,15 +691,43 @@ class RobotInpaintProcessor(BaseProcessor):
         # Save main robot-inpainted video
         video_path = str(paths.video_overlay).split(".mkv")[0] + f"_{self.robot}_{self.bimanual_setup}.mkv"
         self._save_video(video_path, img_overlay)
+        # import pdb; pdb.set_trace()
 
         # Save bird's eye view video for analysis and debugging
         if img_birdview is not None:
             birdview_path = str(paths.video_birdview).split(".mkv")[0] + f"_{self.robot}_{self.bimanual_setup}.mkv"
             self._save_video(birdview_path, np.array(img_birdview))
+        # Save side view video for analysis and debugging
+        if img_sideview is not None:
+            sideview_path = str(paths.video_sideview).split(".mkv")[0] + f"_{self.robot}_{self.bimanual_setup}.mkv"
+            self._save_video(sideview_path, np.array(img_sideview))
 
         # Save comprehensive training data with robot state annotations
         training_data_path = str(paths.training_data).split(".npz")[0] + f"_{self.bimanual_setup}.npz"
         sequence.save(training_data_path)
+
+        #danze:add
+        if union_indices is not None and len(union_indices) > 0:
+            # union_indices = sorted(union_indices)
+            segments = []
+            start = union_indices[0]
+            for i in range(1, len(union_indices)):
+                if union_indices[i] != union_indices[i-1] + 1:
+                    segments.append((start, union_indices[i-1]))
+                    start = union_indices[i]
+            segments.append((start, union_indices[-1]))
+            frame_pointer = 0
+            for idx, (s, e) in enumerate(segments):
+                seg_len = e - s + 1
+                seg_frames = img_overlay[frame_pointer: frame_pointer + seg_len]
+                seg_frames_align = selected_frames[frame_pointer: frame_pointer + seg_len]
+                frame_pointer += seg_len
+
+                seg_video_path = str(paths.video_overlay).split(".mkv")[0] + f"_{self.robot}_{self.bimanual_setup}_part{idx+1}.mkv"
+                seg_video_path_align = str(paths.data_path / f"align_part_{idx+1}.mkv")
+                self._save_video(seg_video_path, seg_frames)
+                self._save_video(seg_video_path_align, seg_frames_align)
+                # print(f"Saved split result video: {seg_video_path} ({seg_len} frames)")
 
     def _save_video(self, path: str, frames: List[np.ndarray]) -> None:
         """
@@ -664,6 +743,15 @@ class RobotInpaintProcessor(BaseProcessor):
             fps=self.DEFAULT_FPS, 
             codec=self.DEFAULT_CODEC
         )
+
+        output_video_path = path.replace(".mkv", ".mp4")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", path,
+            output_video_path
+        ]
+        subprocess.run(cmd,stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _get_mujoco_camera_params(self) -> MujocoCameraParams:
         """
@@ -712,7 +800,7 @@ class RobotInpaintProcessor(BaseProcessor):
         if self.input_resolution == 256:
             img_w = 456 
         # Phantom paper
-        elif self.input_resolution == 1080:
+        elif self.input_resolution == 1080 or self.input_resolution == 360:
             img_w = self.input_resolution * 16 // 9
         img_h = self.input_resolution
         return img_w, img_h
