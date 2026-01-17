@@ -93,9 +93,13 @@ class SmoothingProcessor(BaseProcessor):
         # Load action data for target hand
         actions_path = self._get_actions_path(paths)
         actions = np.load(actions_path, allow_pickle=True)
+
+        #danze: add
+        filtered_ee_pts = self.filter_outliers_by_velocity(actions["ee_pts"], threshold=0.1)
+        smoothed_ee_pts = self.gaussian_process_smoothing(filtered_ee_pts)
         
         # Apply smoothing to each trajectory component
-        smoothed_ee_pts = self.gaussian_process_smoothing(actions["ee_pts"])
+        # smoothed_ee_pts = self.gaussian_process_smoothing(actions["ee_pts"])
         
         # Apply rotation smoothing with configuration-specific parameters
         if self.constrained_hand:
@@ -270,6 +274,27 @@ class SmoothingProcessor(BaseProcessor):
             smoothed_rots.append(r_avg.as_matrix())
 
         return np.stack(smoothed_rots)
+    
+    #danze: add
+    def filter_outliers_by_velocity(self, pts: np.ndarray, threshold: float = 0.1) -> np.ndarray:
+        """
+        通过速度阈值过滤跳变点，并用上一帧有效数据覆盖。
+        Args:
+            pts: 轨迹点 (N, 3)
+            threshold: 最大允许位移（米）
+        """
+        refined_pts = pts.copy()
+        for i in range(1, len(refined_pts)):
+            # 计算当前帧与上一帧的欧式距离
+            dist = np.linalg.norm(refined_pts[i] - refined_pts[i-1])
+            
+            if dist > threshold:
+                # 如果跳变太大，直接复制上一帧数据
+                refined_pts[i] = refined_pts[i-1]
+                logger.warning(f"Frame {i}: detected jump of {dist:.4f}m, replacing with previous frame.")
+                
+        return refined_pts
+    #add end
 
     @staticmethod
     def gaussian_process_smoothing(pts: np.ndarray) -> np.ndarray:
