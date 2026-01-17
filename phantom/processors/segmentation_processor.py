@@ -836,32 +836,45 @@ class HandSegmentationProcessor(BaseSegmentationProcessor):
         if hamer_data is None:
             hamer_data = self._load_hamer_data(paths)
 
+        # --- 修复逻辑开始：初始化默认值 ---
+        num_frames = len(imgs_rgb)
+        img_h, img_w = imgs_rgb[0].shape[:2]
+        
+        # 默认空数据
+        left_masks = np.zeros((num_frames, img_h, img_w), dtype=bool)
+        left_sam_imgs = np.zeros((num_frames, img_h, img_w, 3), dtype=np.uint8)
+        right_masks = np.zeros((num_frames, img_h, img_w), dtype=bool)
+        right_sam_imgs = np.zeros((num_frames, img_h, img_w, 3), dtype=np.uint8)
+        # --- 修复逻辑结束 ---
+
         # Process left and right hands separately for precise segmentation
-        left_data = self._process_hand_data(
-            imgs_rgb,
-            bbox_data["left_bboxes"],
-            bbox_data["left_bbox_min_dist_to_edge"],
-            bbox_data["left_hand_detected"],
-            hamer_data["left"],
-            paths,
-            "left"
-        )
+        if self.target_hand == "left":
+            left_data = self._process_hand_data(
+                imgs_rgb,
+                bbox_data["left_bboxes"],
+                bbox_data["left_bbox_min_dist_to_edge"],
+                bbox_data["left_hand_detected"],
+                hamer_data["left"],
+                paths,
+                "left"
+            )
 
-        right_data = self._process_hand_data(
-            imgs_rgb,
-            bbox_data["right_bboxes"],
-            bbox_data["right_bbox_min_dist_to_edge"],
-            bbox_data["right_hand_detected"],
-            hamer_data["right"],
-            paths,
-            "right"
-        )
+            # Convert to boolean masks
+            left_masks = left_data["left_masks"].astype(np.bool_)
+            left_sam_imgs = left_data["left_sam_imgs"]
 
-        # Convert to boolean masks
-        left_masks = left_data["left_masks"].astype(np.bool_)
-        left_sam_imgs = left_data["left_sam_imgs"]
-        right_masks = right_data["right_masks"].astype(np.bool_)
-        right_sam_imgs = right_data["right_sam_imgs"]
+        if self.target_hand == "right":
+            right_data = self._process_hand_data(
+                imgs_rgb,
+                bbox_data["right_bboxes"],
+                bbox_data["right_bbox_min_dist_to_edge"],
+                bbox_data["right_hand_detected"],
+                hamer_data["right"],
+                paths,
+                "right"
+            )
+            right_masks = right_data["right_masks"].astype(np.bool_)
+            right_sam_imgs = right_data["right_sam_imgs"]
 
         # Save results with separate left/right hand data
         self._save_results(paths, left_masks, left_sam_imgs, right_masks, right_sam_imgs)
