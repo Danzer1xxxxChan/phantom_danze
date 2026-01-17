@@ -81,7 +81,7 @@ class TwinRobot:
     """
     
     # Robot configuration constants
-    DEFAULT_ROBOT_BASE_POS = np.array([-0.56, 0, 0.912])
+    DEFAULT_ROBOT_BASE_POS = np.array([-0.56, 0, 0.912]) #-0.56, 0, 0.912
     
     def __init__(self, robot_name: str, gripper_name: str, camera_params: MujocoCameraParams, camera_height: int, camera_width: int,
                  render: bool, n_steps_short: int, n_steps_long: int, debug_cameras: list[str] = [], 
@@ -114,6 +114,11 @@ class TwinRobot:
         self.camera_name = "frontview"  # Main camera name for single-arm setup
         self.square = square
         self.debug_cameras = list(debug_cameras) if debug_cameras else []
+
+        self.robot_eef = []
+        self.robot_gripper = []
+        self.joint_pos = []
+        self.timesteps = 0
 
         # Configure observation specifications for robomimic
         obs_spec = dict(
@@ -169,6 +174,10 @@ class TwinRobot:
         """Reset environment and clear observation history."""
         self.env.reset()
         self.obs_history = deque()
+        self.robot_eef = []      # 清空之前的轨迹
+        self.robot_gripper = []
+        self.joint_pos = []
+        self.timesteps = 0
 
     def close(self):
         """Close the simulation environment."""
@@ -284,6 +293,23 @@ class TwinRobot:
         
         # Execute movement to target pose
         obs = self.move_to_pose(state["pos"], state["ori_xyzw"], float(gripper_action), n_steps)
+        
+        # 1. 提取数据
+        cos_values = obs['robot0_joint_pos_cos']
+        sin_values = obs['robot0_joint_pos_sin']
+
+        # 2. 计算弧度 (np.arctan2 的参数顺序是 y, x，即 sin, cos)
+        joint_pos_rad = np.arctan2(sin_values, cos_values)
+        print("Joint positions (radians):", joint_pos_rad)
+
+        self.joint_pos.append(joint_pos_rad)
+        
+        # import pdb; pdb.set_trace()
+        franka_eef = self.get_robot_eef_from_obs(obs)
+        self.robot_eef.append(franka_eef)
+        gripper_width = self.get_robot_gripper_width_from_obs(obs)
+        self.robot_gripper.append(gripper_width)
+        self.timesteps += 1
 
         # Extract observation data from simulation
         robot_mask = np.squeeze(self.get_robot_mask(obs))
@@ -329,12 +355,20 @@ class TwinRobot:
         if self.gripper_name == "Robotiq85":
             # Robotiq85 gripper specifications
             min_gripper_pos, max_gripper_pos = 0.0, 0.085  # 0 to 8.5cm opening
-            gripper_pos = np.clip(gripper_pos, min_gripper_pos, max_gripper_pos)
             open_gripper_action, closed_gripper_action = 0, 255  # 0=open, 255=closed
+        elif self.gripper_name == "Panda":
+            # Panda 夹爪通常最大张开 0.08m
+            # 在 robosuite/MuJoCo 中，Panda 夹爪的操作值通常是 [-1, 1] 
+            # 其中 1 代表完全打开，-1 代表完全闭合（取决于具体控制器配置）
+            min_gripper_pos, max_gripper_pos = 0.0, 0.08
+            open_gripper_action, closed_gripper_action = 1.0, -1.0
             # Linear interpolation between open and closed states
-            return np.interp(gripper_pos, [min_gripper_pos, max_gripper_pos], [closed_gripper_action, open_gripper_action])
+            
         else:
             raise ValueError(f"Gripper name {self.gripper_name} not supported")
+        
+        gripper_pos = np.clip(gripper_pos, min_gripper_pos, max_gripper_pos)
+        return np.interp(gripper_pos, [min_gripper_pos, max_gripper_pos], [closed_gripper_action, open_gripper_action])
 
     def move_to_pose(self, ee_pos: np.ndarray, ee_ori: np.ndarray, gripper_action: float, n_steps: int) -> dict:
         """
@@ -488,3 +522,36 @@ class TwinRobot:
         mask = np.zeros_like(seg_img)
         mask[seg_img == 3] = 1  # Gripper
         return mask
+    
+    def get_robot_eef_from_obs(self, obs: dict) -> np.ndarray:
+
+        world_robot_eef_pos = obs["robot0_eef_pos"]
+        robot_eef_quat = obs["robot0_eef_quat"]  
+        robot_eef_pos = world_robot_eef_pos - self.robot_base_pos
+        franka_eef = np.concatenate([robot_eef_pos,robot_eef_quat])
+
+        return franka_eef
+    
+    def get_robot_gripper_width_from_obs(self, obs: dict) -> float:
+        gripper_qpos = obs["robot0_gripper_qpos"]
+        
+        gripper_width = abs(gripper_qpos[0]) + abs(gripper_qpos[1])
+        
+        return gripper_width
+    
+    def save_robot_eef_traj(self, save_path: str):
+        """
+        Save recorded robot end-effector trajectory to a .npz file.
+        
+        Args:
+            save_path: File path to save the trajectory data
+        """
+        robot_eef_array = np.array(self.robot_eef)
+        robot_gripper_array = np.array(self.robot_gripper)
+        robot_joint_pos_array = np.array(self.joint_pos)
+        np.savez_compressed(save_path, 
+                            robot_eef=robot_eef_array,
+                            robot_gripper=robot_gripper_array,
+                            robot_joint_pos=robot_joint_pos_array)
+        
+    
