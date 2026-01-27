@@ -802,6 +802,8 @@ class RobotInpaintProcessor(BaseProcessor):
         # Phantom paper
         elif self.input_resolution == 1080 or self.input_resolution == 360:
             img_w = self.input_resolution * 16 // 9
+        elif self.input_resolution == 480:
+            img_w = 640
         img_h = self.input_resolution
         return img_w, img_h
     
