@@ -15,8 +15,10 @@ demo_num: null  # Process specific demo number (null = process all)
 debug_cameras: ['birdview','frontview','agentview','sideview']  # Cameras to visualize in debug mode
 
 # PHANTOM paper configuration (default)
-input_resolution: 360
-output_resolution: 360
+# input_resolution: 360
+# output_resolution: 360
+input_resolution: 480
+output_resolution: 480
 robot: "Panda"
 # gripper: "Robotiq85"
 gripper: "Panda"
@@ -30,5 +32,6 @@ depth_for_overlay: true
 render: false
 # camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_HD1080.json"
 # camera_extrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_extrinsics.json"
-camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_our_lab_single.json"
+# camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_our_lab_single.json"
 camera_extrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_extrinsics_our_lab_single_moved.json"
+camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_our_lab_640_480.json"
