@@ -57,7 +57,7 @@ class RobotInpaintProcessor(BaseProcessor):
     """
     # Processing constants for quality control and output formatting
     TRACKING_ERROR_THRESHOLD = 1000  # Maximum tracking error in meters(0.05)
-    DEFAULT_FPS = 10                 # Standard frame rate for output videos(8)
+    DEFAULT_FPS = 15                 # Standard frame rate for output videos(8)
     DEFAULT_CODEC = "ffv1"          # Lossless codec for high-quality output
 
     def __init__(self, args: Any) -> None:
@@ -200,18 +200,18 @@ class RobotInpaintProcessor(BaseProcessor):
             img_birdview = []
         if "sideview" in self.debug_cameras:
             img_sideview = []
-
+            
         for idx in tqdm(range(len(images['human_imgs'])), desc="Processing frames"):
             # Extract robot states for current frame
             left_state = self._get_robot_state(
                 data['ee_pts_left'][idx], 
                 data['ee_oris_left'][idx], 
-                gripper_widths['left'][idx]
+                gripper_actions['left'][idx]
             )
             right_state = self._get_robot_state(
                 data['ee_pts_right'][idx], 
                 data['ee_oris_right'][idx], 
-                gripper_widths['right'][idx]
+                gripper_actions['right'][idx]
             )
 
             # Process individual frame with robot simulation
@@ -518,9 +518,12 @@ class RobotInpaintProcessor(BaseProcessor):
         Returns:
             RobotState object containing pose and gripper information
         """
+        #danze: modified
+        ee_pt_modified = ee_pt.copy()
+        ee_pt_modified[2] += 0.02
         # Convert rotation matrix to quaternion (XYZW format for robot control)
         ori_xyzw = Rotation.from_matrix(ori_matrix).as_quat(scalar_first=False)
-        robot_state = RobotState(pos=ee_pt, ori_xyzw=ori_xyzw, gripper_pos=gripper_dist)
+        robot_state = RobotState(pos=ee_pt_modified, ori_xyzw=ori_xyzw, gripper_pos=gripper_dist)
         return robot_state
     
     def _process_robot_overlay(self, img: np.ndarray, robot_results: Dict[str, Any]) -> np.ndarray:

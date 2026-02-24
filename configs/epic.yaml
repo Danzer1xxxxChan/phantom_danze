@@ -23,9 +23,11 @@ gripper: "Robotiq85"
 square: false
 epic: true
 bimanual_setup: "shoulders"
+# bimanual_setup: "single_arm"
 target_hand: "both"
+# target_hand: "left"
 constrained_hand: false
 depth_for_overlay: false
 render: false
-camera_intrinsics: "camera/camera_intrinsics_epic.json"
-camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders.json"
+camera_intrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_intrinsics_epic.json"
+camera_extrinsics: "/users/weijia/danze/phantom/phantom/camera/camera_extrinsics_ego_bimanual_shoulders.json"

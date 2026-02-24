@@ -352,7 +352,8 @@ class HandModel:
         middle_tip = vertices[12]
 
         # Calculate grasp point as midpoint between thumb and middle finger tips
-        control_point = (thumb_tip + middle_tip) / 2
+        # control_point = (thumb_tip + middle_tip) / 2
+        control_point = (thumb_tip + index_tip) / 2
         grasp_pt = control_point
 
         # Calculate gripper orientation from thumb-index finger configuration

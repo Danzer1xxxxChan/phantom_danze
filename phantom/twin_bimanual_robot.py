@@ -201,6 +201,7 @@ class TwinBimanualRobot:
 
         # Initialize environment and compute robot base position
         self.reset()
+        #import pdb; pdb.set_trace()
         self.robot_base_pos = np.array([0, 0, self.env.env.robot_base_height+self.env.env.robot_base_offset])
 
  

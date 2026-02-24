@@ -9,3 +9,6 @@ data/processed/*
 *.pth
 outputs/*
 phantom/outputs/*
+phantom/logs*
+phantom/*.sh
+phantom/run_parallel_hpc.py

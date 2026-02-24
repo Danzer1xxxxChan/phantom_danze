@@ -211,7 +211,7 @@ class TwinRobot:
 
         # Apply -135 degree Z rotation for single-arm setup coordinate conversion
         rot = Rotation.from_quat(ee_quat_xyzw)
-        rot_135deg = Rotation.from_euler('z', -135, degrees=True)
+        rot_135deg = Rotation.from_euler('z', 75, degrees=True)
         new_rot = rot * rot_135deg 
 
         # Convert rotation to axis-angle representation
@@ -525,13 +525,61 @@ class TwinRobot:
     
     def get_robot_eef_from_obs(self, obs: dict) -> np.ndarray:
 
-        world_robot_eef_pos = obs["robot0_eef_pos"]
-        robot_eef_quat = obs["robot0_eef_quat"]  
-        robot_eef_pos = world_robot_eef_pos - self.robot_base_pos
-        franka_eef = np.concatenate([robot_eef_pos,robot_eef_quat])
+        from scipy.spatial.transform import Rotation as R
+        sim = self.env.env.sim
+        robot = self.env.env.robots[0]
+        
+        try:
+            # 1. 获取法兰盘 ID (通常是 'robot0_right_hand')
+            flange_body_name = robot.robot_model.eef_name
+            flange_id = sim.model.body_name2id(flange_body_name)
+            
+            # 优先使用 robot0_link0
+            try:
+                base_id = sim.model.body_name2id("robot0_link0")
+            except:
+                base_id = sim.model.body_name2id(f"{self.robot_name.lower()}0_link0")
 
-        return franka_eef
-    
+            # 2. 读取世界坐标系数据
+            w_flange_pos = sim.data.body_xpos[flange_id].copy()
+            w_flange_q_wxyz = sim.data.body_xquat[flange_id].copy()
+            w_base_pos = sim.data.body_xpos[base_id].copy()
+            w_base_q_wxyz = sim.data.body_xquat[base_id].copy()
+            
+            # 3. 转换为 [x, y, z, w]
+            f_q_xyzw = np.array([w_flange_q_wxyz[1], w_flange_q_wxyz[2], w_flange_q_wxyz[3], w_flange_q_wxyz[0]])
+            b_q_xyzw = np.array([w_base_q_wxyz[1], w_base_q_wxyz[2], w_base_q_wxyz[3], w_base_q_wxyz[0]])
+            
+            # 4. 齐次变换计算
+            r_base = R.from_quat(b_q_xyzw)
+            r_flange = R.from_quat(f_q_xyzw)
+            
+            # 基础局部姿态 (从 Base 到纯粹的 Flange)
+            r_base_to_flange = r_base.inv() * r_flange
+            
+            # ---------------------------------------------------------
+            # 【核心修改】：迎合 Libfranka 真实的 45 度坐标系偏移
+            # 在法兰盘局部坐标系的 Z 轴上补偿旋转。
+            # ---------------------------------------------------------
+            # 注意：视 Libfranka 具体版本和夹爪安装方式，这里可能是 -45 也可能是 45。
+            offset_rot = R.from_euler('z', 45, degrees=True) 
+            
+            # 右乘 offset_rot 代表在“局部坐标系”下进行旋转
+            r_libfranka_aligned = r_base_to_flange * offset_rot
+            
+            # 获取对齐真机标准后的四元数
+            rel_q_xyzw = r_libfranka_aligned.as_quat()
+            
+            # 位置保持纯粹的法兰盘中心 (无需 10cm 补偿)
+            rel_pos = r_base.inv().apply(w_flange_pos - w_base_pos)
+            
+            return np.concatenate([rel_pos, rel_q_xyzw])
+            
+        except Exception as e:
+            print(f"⚠️ 计算失败，错误详情: {e}")
+            return np.concatenate([obs["robot0_eef_pos"] - self.robot_base_pos, obs["robot0_eef_quat"]])
+        
+
     def get_robot_gripper_width_from_obs(self, obs: dict) -> float:
         gripper_qpos = obs["robot0_gripper_qpos"]
         
@@ -554,4 +602,3 @@ class TwinRobot:
                             robot_gripper=robot_gripper_array,
                             robot_joint_pos=robot_joint_pos_array)
         
-    
