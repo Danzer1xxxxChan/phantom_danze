@@ -294,12 +294,17 @@ class TwinRobot:
         # Execute movement to target pose
         obs = self.move_to_pose(state["pos"], state["ori_xyzw"], float(gripper_action), n_steps)
         
-        # 1. 提取数据
-        cos_values = obs['robot0_joint_pos_cos']
-        sin_values = obs['robot0_joint_pos_sin']
+        # # 1. 提取数据
+        # cos_values = obs['robot0_joint_pos_cos']
+        # sin_values = obs['robot0_joint_pos_sin']
 
-        # 2. 计算弧度 (np.arctan2 的参数顺序是 y, x，即 sin, cos)
-        joint_pos_rad = np.arctan2(sin_values, cos_values)
+        # # 2. 计算弧度 (np.arctan2 的参数顺序是 y, x，即 sin, cos)
+        # joint_pos_rad = np.arctan2(sin_values, cos_values)
+        # print("Joint positions (radians):", joint_pos_rad)
+
+        robot = self.env.env.robots[0]
+        joint_pos_rad = robot._joint_positions
+        
         print("Joint positions (radians):", joint_pos_rad)
 
         self.joint_pos.append(joint_pos_rad)

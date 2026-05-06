@@ -75,4 +75,6 @@ python process_data.py demo_name=pick_and_place demo_num=13 data_root_dir=/stora
 ffmpeg -i /storage/weijia/danze/dataset/phantom_sim2real/comparison_results/comparison_3.mp4 -vf "fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" /storage/weijia/danze/dataset/phantom_sim2real/comparison_results/comparison_3.gif
 
 
-python process_data.py demo_name=pick_and_place demo_num=1 data_root_dir=/storage/weijia/danze/dataset/phantom_sim2real/26_02_22_data/NO1 processed_data_root_dir=/storage/weijia/danze/dataset/phantom_sim2real/26_02_22_data_processed/NO1 mode=robot_inpaint
+python process_data.py demo_name=pick_and_place demo_num=54 data_root_dir=/storage/weijia/danze/dataset/phantom_sim2real/26_02_22_data/NO1 processed_data_root_dir=/storage/weijia/danze/dataset/phantom_sim2real/26_02_22_data_processed/NO1 mode=robot_inpaint
+
+python process_data.py demo_name=pick_and_place demo_num=0 data_root_dir=/storage/weijia/danze/dataset/phantom_sim2real/26_05_05_data/NO1 processed_data_root_dir=/storage/weijia/danze/dataset/phantom_sim2real/26_05_05_data_processed/NO1 mode=bbox
